@@ -5,6 +5,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Ensure yay is installed
@@ -25,44 +26,65 @@ fi
 while true; do
     echo -e ""
     echo -ne "${YELLOW}[?] Enter the name of the app to search (or type 'exit' to quit): ${NC}"
-    read -r app_name
+    read -r raw_app_name
+
+    # Sanitize input: Strip leading/trailing whitespaces and lower-case it
+    app_name=$(echo "$raw_app_name" | xargs | tr '[:upper:]' '[:lower:]')
 
     # Check for exit condition
-    if [[ "$app_name" == "exit" || -z "$app_name" ]]; then
-        if [ -z "$app_name" ]; then
-            echo -e "${RED}[!] Error: No application name provided.${NC}"
-        else
-            echo -e "${GREEN}[+] Exiting. Happy Arch-ing!${NC}"
-        fi
+    if [[ "$app_name" == "exit" ]]; then
+        echo -e "${GREEN}[+] Exiting. Happy Arch-ing!${NC}"
         break
+    elif [[ -z "$app_name" ]]; then
+        echo -e "${RED}[!] Error: No application name provided.${NC}"
+        continue
     fi
 
-    # Check if package is already installed locally
-    if pacman -Q "$app_name" &> /dev/null; then
-        echo -e "${GREEN}[✓] Status: '$app_name' is currently INSTALLED on your system.${NC}"
+    echo -e "${CYAN}[+] Scanning local system for matches matching '$app_name'...${NC}"
+    
+    # Check for substring installations using pacman query and grep
+    installed_matches=$(pacman -Qq | grep -Ei -- "$app_name" || true)
+
+    if [[ -n "$installed_matches" ]]; then
+        # Count the number of matches found locally
+        match_count=$(echo "$installed_matches" | wc -l)
+        echo -e "${GREEN}[✓] Status: Found $match_count matching package(s) INSTALLED on your system:${NC}"
+        # Print matching packages in a clean, indented list
+        printf '%s\n' "$installed_matches" | sed 's/^/    - /'
     else
-        echo -e "${BLUE}[ℹ] Status: '$app_name' is NOT currently installed.${NC}"
+        echo -e "${BLUE}[ℹ] Status: No packages matching '$app_name' are currently installed.${NC}"
     fi
 
+    # Display clean interactive actions menu
     echo -e "\nChoose an action for '${BLUE}$app_name${NC}':"
     echo "  1) Search / Interactive Install (default)"
-    echo "  2) View Package Details (-Si)"
-    echo "  3) Remove Package (-Rns)"
-    echo -ne "${YELLOW}[?] Select option [1-3]: ${NC}"
+    echo "  2) View Remote Package Info (-Si)"
+    echo "  3) Purge Installed Matches (-Rns)"
+    echo "  4) Clean Package Cache (-Sc)"
+    echo -ne "${YELLOW}[?] Select option [1-4]: ${NC}"
     read -r choice
 
     echo -e ""
     case "$choice" in
         2)
-            echo -e "${GREEN}[+] Fetching package details...${NC}"
+            echo -e "${GREEN}[+] Fetching remote repository details...${NC}"
             yay -Si "$app_name"
             ;;
         3)
-            echo -e "${RED}[+] Removing package...${NC}"
-            sudo pacman -Rns "$app_name"
+            if [[ -z "$installed_matches" ]]; then
+                echo -e "${RED}[!] Aborted: No installed packages found to remove.${NC}"
+            else
+                echo -e "${RED}[+] Initiating removal sequence...${NC}"
+                # Safely passes all discovered matching packages directly to yay for removal
+                printf '%s\n' "$installed_matches" | xargs -r yay -Rns
+            fi
+            ;;
+        4)
+            echo -e "${YELLOW}[+] Cleaning uninstalled package caches to free space...${NC}"
+            yay -Sc
             ;;
         *)
-            echo -e "${GREEN}[+] Searching databases and AUR...${NC}"
+            echo -e "${GREEN}[+] Searching official databases and AUR...${NC}"
             yay "$app_name"
             ;;
     esac
